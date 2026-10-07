@@ -122,36 +122,130 @@ impl MusicaBlowfish {
     }
 }
 
-fn load_s_boxes() -> [[u32; 256]; 4] {
-    let mut exe = File::open("r:\\Wind\\WindRP_unpacked.exe").expect("WindRP_unpacked.exe not found");
-    let mut data = vec![0u8; 946176];
-    exe.read_exact(&mut data).expect("Failed to read exe");
-
-    let mut boxes = [[0u32; 256]; 4];
-    let offset = 0x9AD80;
-    for s in 0..4 {
-        for i in 0..256 {
-            let idx = offset + (s * 256 + i) * 4;
-            boxes[s][i] = u32::from_le_bytes(data[idx..idx + 4].try_into().unwrap());
+fn find_game_exe() -> Option<PathBuf> {
+    if let Ok(val) = env::var("WINDRP_EXE") {
+        let p = PathBuf::from(val);
+        if p.is_file() {
+            return Some(p);
         }
     }
-    boxes
+
+    let candidate_names = [
+        "WindRP_ru.exe",
+        "WindRP_unpacked.exe",
+        "WindRP.exe",
+    ];
+
+    let mut search_dirs = Vec::new();
+
+    if let Ok(cwd) = env::current_dir() {
+        search_dirs.push(cwd.clone());
+        if let Some(p) = cwd.parent() {
+            search_dirs.push(p.to_path_buf());
+            if let Some(pp) = p.parent() {
+                search_dirs.push(pp.to_path_buf());
+            }
+        }
+    }
+
+    if let Ok(exe) = env::current_exe() {
+        let mut cur = exe.parent();
+        while let Some(dir) = cur {
+            let pb = dir.to_path_buf();
+            if !search_dirs.contains(&pb) {
+                search_dirs.push(pb);
+            }
+            cur = dir.parent();
+        }
+    }
+
+    for dir in &search_dirs {
+        for name in &candidate_names {
+            let path = dir.join(name);
+            if path.is_file() {
+                if let Ok(meta) = fs::metadata(&path) {
+                    if meta.len() >= 0xB64C8 {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
-fn load_keys_from_exe() -> Vec<[u8; 32]> {
-    let mut exe = File::open("r:\\Wind\\WindRP_unpacked.exe").expect("WindRP_unpacked.exe not found");
-    let mut data = vec![0u8; 946176];
-    exe.read_exact(&mut data).expect("Failed to read exe");
+fn parse_crypto(s_raw: &[u8], k_raw: &[u8]) -> ([[u32; 256]; 4], Vec<[u8; 32]>) {
+    let mut boxes = [[0u32; 256]; 4];
+    for s in 0..4 {
+        for i in 0..256 {
+            let idx = (s * 256 + i) * 4;
+            boxes[s][i] = u32::from_le_bytes(s_raw[idx..idx + 4].try_into().unwrap());
+        }
+    }
 
-    let mut keys = Vec::new();
-    let offset = 0xB6288;
+    let mut keys = Vec::with_capacity(18);
     for i in 0..18 {
-        let start = offset + i * 32;
+        let start = i * 32;
         let mut key = [0u8; 32];
-        key.copy_from_slice(&data[start..start + 32]);
+        key.copy_from_slice(&k_raw[start..start + 32]);
         keys.push(key);
     }
-    keys
+
+    (boxes, keys)
+}
+
+fn load_crypto() -> ([[u32; 256]; 4], Vec<[u8; 32]>) {
+    if let Some(exe_path) = find_game_exe() {
+        if let Ok(mut f) = File::open(&exe_path) {
+            let mut s_raw = [0u8; 4096];
+            let mut k_raw = [0u8; 576];
+            if f.seek(SeekFrom::Start(0x9AD80)).is_ok()
+                && f.read_exact(&mut s_raw).is_ok()
+                && f.seek(SeekFrom::Start(0xB6288)).is_ok()
+                && f.read_exact(&mut k_raw).is_ok()
+            {
+                println!("[*] Загружены S-блоки и ключи из: {:?}", exe_path);
+                return parse_crypto(&s_raw, &k_raw);
+            }
+        }
+    }
+
+    println!("[*] Исполняемый файл игры не найден, используются встроенные ключи и S-блоки");
+    let s_raw = include_bytes!("s_boxes.bin");
+    let k_raw = include_bytes!("keys.bin");
+    parse_crypto(s_raw, k_raw)
+}
+
+fn find_base_dir() -> PathBuf {
+    if let Ok(cwd) = env::current_dir() {
+        if cwd.join("unpacked_scr2").exists() || cwd.join("scripts_md").exists() || cwd.join("WindRP_ru.exe").exists() {
+            return cwd;
+        }
+    }
+    if let Ok(exe) = env::current_exe() {
+        let mut cur = exe.parent();
+        while let Some(dir) = cur {
+            if dir.join("unpacked_scr2").exists() || dir.join("scripts_md").exists() || dir.join("WindRP_ru.exe").exists() {
+                return dir.to_path_buf();
+            }
+            cur = dir.parent();
+        }
+    }
+    env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn default_dir(name: &str) -> PathBuf {
+    let p = Path::new(name);
+    if p.exists() {
+        return p.to_path_buf();
+    }
+    let base = find_base_dir();
+    let candidate = base.join(name);
+    if candidate.exists() {
+        return candidate;
+    }
+    PathBuf::from(name)
 }
 
 fn get_archive_type_index(name_or_path: &Path) -> usize {
@@ -773,7 +867,7 @@ fn import_md(md_dir: &Path, scr_template_dir: &Path, out_scr_dir: &Path, wrap_li
                         continue;
                     }
                     let sel_id = format!("SELECT_{}", opt_idx + 1);
-                    let (opt_text, label) = if let Some(colon) = opt_trimmed.rfind(':') {
+                    let (_opt_text, label) = if let Some(colon) = opt_trimmed.rfind(':') {
                         (&opt_trimmed[..colon], &opt_trimmed[colon+1..])
                     } else {
                         (opt_trimmed, "")
@@ -814,9 +908,6 @@ fn import_md(md_dir: &Path, scr_template_dir: &Path, out_scr_dir: &Path, wrap_li
 }
 
 fn main() {
-    let s_init = load_s_boxes();
-    let keys = load_keys_from_exe();
-
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         println!("Musica PAZ unpacker/packer & localization tool");
@@ -828,23 +919,25 @@ fn main() {
         return;
     }
 
+    let (s_init, keys) = load_crypto();
+
     if args[1] == "pack" {
         if args.len() < 4 {
             println!("Ошибка: укажите папку и выходной файл!");
-            println!("Пример: wind_paz.exe pack r:\\Wind\\unpacked_scr2 r:\\Wind\\scr2.paz");
+            println!("Пример: wind_paz.exe pack unpacked_scr2 scr2.paz");
             return;
         }
         pack_paz(Path::new(&args[2]), Path::new(&args[3]), &s_init, &keys);
     } else if args[1] == "export-md" {
-        let en_dir = if args.len() > 2 { PathBuf::from(&args[2]) } else { PathBuf::from("r:\\Wind\\unpacked_scr2") };
-        let jp1_dir = if args.len() > 3 { PathBuf::from(&args[3]) } else { PathBuf::from("r:\\Wind\\unpacked_scr1") };
-        let jp0_dir = if args.len() > 4 { PathBuf::from(&args[4]) } else { PathBuf::from("r:\\Wind\\unpacked_scr") };
-        let out_dir = if args.len() > 5 { PathBuf::from(&args[5]) } else { PathBuf::from("r:\\Wind\\scripts_md") };
+        let en_dir = if args.len() > 2 { PathBuf::from(&args[2]) } else { default_dir("unpacked_scr2") };
+        let jp1_dir = if args.len() > 3 { PathBuf::from(&args[3]) } else { default_dir("unpacked_scr1") };
+        let jp0_dir = if args.len() > 4 { PathBuf::from(&args[4]) } else { default_dir("unpacked_scr") };
+        let out_dir = if args.len() > 5 { PathBuf::from(&args[5]) } else { default_dir("scripts_md") };
         export_md(&en_dir, &jp1_dir, &jp0_dir, &out_dir);
     } else if args[1] == "import-md" {
-        let md_dir = if args.len() > 2 { PathBuf::from(&args[2]) } else { PathBuf::from("r:\\Wind\\scripts_md") };
-        let template_dir = if args.len() > 3 { PathBuf::from(&args[3]) } else { PathBuf::from("r:\\Wind\\unpacked_scr2") };
-        let out_scr_dir = if args.len() > 4 { PathBuf::from(&args[4]) } else { PathBuf::from("r:\\Wind\\unpacked_scr2") };
+        let md_dir = if args.len() > 2 { PathBuf::from(&args[2]) } else { default_dir("scripts_md") };
+        let template_dir = if args.len() > 3 { PathBuf::from(&args[3]) } else { default_dir("unpacked_scr2") };
+        let out_scr_dir = if args.len() > 4 { PathBuf::from(&args[4]) } else { default_dir("unpacked_scr2") };
         let wrap_limit = if args.len() > 5 { args[5].parse::<usize>().unwrap_or(56) } else { 56 };
         import_md(&md_dir, &template_dir, &out_scr_dir, wrap_limit);
     } else {

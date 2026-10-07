@@ -1,11 +1,11 @@
 {
   "injector": {
     "enable": true,
-    "target_module": "WindRP_fixed.exe",
+    "target_module": "WindRP_ru.exe",
     "print_loaded_modules": true
   },
   
-    "allocate_console": true,
+    "allocate_console": false,
 
     "character_substitution": {
       "enable": true,
@@ -33,7 +33,7 @@
 
     "window_manager": {
     "enable": true,
-    "overwrite_title": "H2O √after and another Русификатор версии 0.3",
+    "overwrite_title": "Ветер: Дыхание сердца",
     "process_existing_windows": true
   }
 }

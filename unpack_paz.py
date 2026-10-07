@@ -46,9 +46,18 @@ ARCHIVE_KEYS = {
 }
 
 def load_s_boxes():
-    exe_path = os.path.join(os.path.dirname(__file__) or '.', 'WindRP_unpacked.exe')
-    if not os.path.exists(exe_path):
-        exe_path = 'WindRP_unpacked.exe'
+    candidates = ['WindRP_ru.exe', 'WindRP_unpacked.exe', 'WindRP.exe']
+    base_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else '.'
+    exe_path = None
+    for name in candidates:
+        for p in [os.path.join(base_dir, name), name]:
+            if os.path.isfile(p) and os.path.getsize(p) >= 0x9ad80 + 4096:
+                exe_path = p
+                break
+        if exe_path:
+            break
+    if not exe_path:
+        raise FileNotFoundError("Neither WindRP_ru.exe nor WindRP_unpacked.exe was found")
     with open(exe_path, 'rb') as f:
         f.seek(0x9ad80)
         s_data = f.read(4 * 256 * 4)
