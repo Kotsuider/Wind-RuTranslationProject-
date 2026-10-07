@@ -1,0 +1,39 @@
+{
+  "injector": {
+    "enable": true,
+    "target_module": "WindRP_fixed.exe",
+    "print_loaded_modules": true
+  },
+  
+    "allocate_console": true,
+
+    "character_substitution": {
+      "enable": true,
+      "source_characters": "><+%=#^@;/",
+      "target_characters": "ÓÕ¹²×É«»{}"
+    },
+
+    "font_manager": {
+      "enable": true,
+      "resource_files": [
+        "YasuSakuutaH2o.ttf"
+      ],
+      "spoof_enumeration": {
+        "enable": true,
+        "filter_pitch_and_family": 1,
+        "filter_charset": 1,
+        "spoof_charset": 128
+      },
+      "spoof_creation": {
+        "enable": true,
+        "override_face": "YasuSakuutaH2o",
+        "override_charset": 0
+      }
+    },
+
+    "window_manager": {
+    "enable": true,
+    "overwrite_title": "H2O √after and another Русификатор версии 0.3",
+    "process_existing_windows": true
+  }
+}
