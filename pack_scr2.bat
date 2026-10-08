@@ -22,6 +22,17 @@ if exist scr2.paz (
     )
 )
 
+if exist scripts_md (
+    echo [*] Importing translations from scripts_md...
+    wind_paz.exe import-md scripts_md unpacked_scr2 unpacked_scr2 56
+    if %ERRORLEVEL% NEQ 0 (
+        echo.
+        echo [ERROR] Translation import failed!
+        pause
+        exit /b 1
+    )
+)
+
 echo [*] Packing scr2.paz...
 wind_paz.exe pack unpacked_scr2 scr2.paz
 
